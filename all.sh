@@ -7,11 +7,36 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # 重置颜色
 
-# 初始化环境
-set -eo pipefail
-trap "echo -e '${RED}脚本被中断！${NC}'; exit 1" INT
+# 检查是否为root
+if [[ $EUID -ne 0 ]]; then
+  echo -e "${RED}请以root用户运行本脚本！${NC}"
+  exit 1
+fi
 
-#--------- 功能函数定义 ---------#
+# trap优化
+trap "echo -e '${RED}脚本被中断！${NC}'; exit 1" INT
+trap "echo -e '${RED}发生错误，脚本退出！${NC}'; exit 1" ERR
+trap "echo -e '${YELLOW}脚本已退出。${NC}'" EXIT
+
+set -eo pipefail
+
+# 检查命令是否存在
+require_cmd() {
+  for cmd in "$@"; do
+    if ! command -v "$cmd" &>/dev/null; then
+      echo -e "${RED}缺少必要命令: $cmd，请先安装！${NC}"
+      exit 1
+    fi
+  done
+}
+
+# 检查网络连通性
+check_network() {
+  if ! ping -c 1 -W 2 8.8.8.8 &>/dev/null; then
+    echo -e "${RED}网络不可用，请检查网络连接！${NC}"
+    exit 1
+  fi
+}
 
 # 显示带颜色状态的消息
 status_msg() {
@@ -27,8 +52,10 @@ status_msg() {
 # 基础软件包安装
 install_packages() {
   status_msg running "更新系统并安装基础软件包"
-  sudo apt update -y
-  sudo apt install -y wget curl unzip jq nethogs
+  require_cmd apt
+  check_network
+  apt update -y
+  apt install -y wget curl unzip jq nethogs
   status_msg success "软件包安装"
 }
 
@@ -36,35 +63,43 @@ install_packages() {
 enable_bbr() {
   status_msg running "启用BBR网络优化"
   grep -q "net.core.default_qdisc=fq" /etc/sysctl.conf || \
-    echo "net.core.default_qdisc=fq" | sudo tee -a /etc/sysctl.conf >/dev/null
+    echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
   grep -q "net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf || \
-    echo "net.ipv4.tcp_congestion_control=bbr" | sudo tee -a /etc/sysctl.conf >/dev/null
-  sudo sysctl -p >/dev/null
-  sudo modprobe tcp_bbr
+    echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+  sysctl -p >/dev/null
+  modprobe tcp_bbr
   status_msg success "BBR优化配置"
 }
 
 # X-UI面板安装
 install_xui() {
   status_msg running "安装X-UI面板"
+  require_cmd curl bash
+  check_network
   bash <(curl -fsSL https://raw.githubusercontent.com/networkgateways/script/main/Tool/x-ui.sh)
 }
 
 # X-UI更新
 update_xui() {
   status_msg running "更新X-UI面板"
+  require_cmd curl bash
+  check_network
   bash <(curl -fsSL https://raw.githubusercontent.com/networkgateways/script/main/Tool/x-ui-update.sh)
 }
 
 # DDNS配置
 setup_ddns() {
   status_msg running "配置DDNS动态域名"
+  require_cmd curl bash
+  check_network
   bash <(curl -fsSL https://raw.githubusercontent.com/networkgateways/script/main/Tool/install-ddns-go.sh)
 }
 
 # GOST代理安装
 install_gost() {
   status_msg running "安装realm代理工具"
+  require_cmd wget bash
+  check_network
   script_file="realm.sh"
   [ ! -f "$script_file" ] && \
     wget --no-check-certificate -O "$script_file" \
@@ -76,6 +111,8 @@ install_gost() {
 # Docker环境部署
 setup_docker() {
   status_msg running "部署Docker运行环境"
+  require_cmd wget bash
+  check_network
   script_file="install_docker_and_restart.sh"
   [ ! -f "$script_file" ] && \
     wget -q -N https://raw.githubusercontent.com/networkgateways/script/main/Tool/install_docker_and_restart.sh
@@ -85,6 +122,8 @@ setup_docker() {
 # 欧洲Docker优化
 eu_docker_optimize() {
   status_msg running "执行欧洲Docker优化配置"
+  require_cmd curl bash
+  check_network
   bash <(curl -fsSL https://raw.githubusercontent.com/fscarmen/tools/main/EU_docker_Up.sh)
 }
 
@@ -144,11 +183,16 @@ process_choice() {
 
 # 主执行逻辑
 main() {
+  local last_choice=""
   while true; do
     show_menu
-    read -p "请输入操作编号 (1-7): " choice
-    
+    read -p "请输入操作编号 (1-7, q退出): " choice
+    [[ "$choice" == "q" || "$choice" == "Q" ]] && break
+    if [[ -z "$choice" && -n "$last_choice" ]]; then
+      choice="$last_choice"
+    fi
     if valid_choice "$choice"; then
+      last_choice="$choice"
       process_choice "$choice"
       read -p "按回车返回主菜单..."
     else
@@ -156,6 +200,7 @@ main() {
       sleep 2
     fi
   done
+  echo -e "${GREEN}感谢使用，再见！${NC}"
 }
 
 # 脚本入口
