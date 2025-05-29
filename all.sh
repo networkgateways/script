@@ -97,13 +97,13 @@ setup_ddns() {
 
 # GOST代理安装
 install_gost() {
-  status_msg running "安装realm代理工具"
+  status_msg running "安装gost代理工具"
   require_cmd wget bash
   check_network
-  script_file="realm.sh"
+  script_file="gost.sh"
   [ ! -f "$script_file" ] && \
     wget --no-check-certificate -O "$script_file" \
-    https://raw.githubusercontent.com/qqrrooty/EZrealm/main/realm.sh
+    https://raw.githubusercontent.com/qqrrooty/EZgost/main/gost.sh
   chmod +x "$script_file"
   ./"$script_file"
 }
@@ -136,7 +136,7 @@ show_menu() {
   echo "1. 系统基础配置 (更新+软件包+BBR)"
   echo "2. 安装/更新X-UI面板"
   echo "3. DDNS动态域名配置"
-  echo "4. realm代理工具部署"
+  echo "4. gost代理工具部署"
   echo "5. Docker环境全配置"
   echo "6. 执行完整初始化流程"
   echo "7. 退出"
